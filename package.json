@@ -1,0 +1,16 @@
+{
+  "name": "tab",
+  "version": "0.1.0",
+  "description": "Things with Attributes and Behaviors is a vernacular information management system",
+  "main": "tab.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["multi-user dungeon", "MUD", "MUSH", "MOO", "MUCK", "ECS", "entity-component system"],
+  "author": "emsenn",
+  "license": "MIT",
+  "dependencies": {
+    "@types/node": "^18.0.6",
+    "node-fetch": "^3.2.6"
+  }
+}
