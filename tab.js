@@ -1,164 +1,104 @@
-// Things with Attribute and Behaviors (TAB)
+// Things with Attributes and Behaviors (TAB)
 // *Things* are *made* from *models* that list *attributes* and *behaviors*.
 // *Attributes* become *properties* of the *model*.
-// *Behaviors*  *methods* of the *model*.
+// *Behaviors* become *methods* of the *model*.
 
-// This is the main TAB module, containing all the functions someone using the engine might want to access.
+// TAB is essentially a server for a multi-user dimension focused on enabling users to create virtual objects and form relations between them, to enable a practice of vernacular autoethnosis.
+//
+// TAB is written as a single Javascript file, meant to be placed in the root directory of your own project, using two subdirectories to store data:
+// - ./models holds JSON files containing our models
+// - ./behaviors holds Javascript files listing our behaviors
+//
+// Example:
+//   const tab = require('./tab');
+//   const apple = tab.makeThing('food', { name: 'apple'});
+//
+// The makeThing function would do the following:
+// - Check if baseInput (here, 'food'), is a string, and if it is, pass it to tab.GatherAttributes to collect the "food" model's attributes.
+//   - Next, inside tab.gatherAttributes('food'), it loads food.json from tab.modelsDirectory.
+//   - If the 'food' model has any base model(s) defined, then their attributes will be recursively gathered.
+// - Once our baseInput has been translated into a model, we gather the attributes of the generic thing - every thing we make is going to have the attributes described in thing.json
+// - Next, we merge the attributes of the generic thing model with the attributes of the base model.
+// - If additional attributes have been provided - here, {name: "apple"}, those are merged in with the model we've made from a thing and food.
+// - Next, we create a "thing", technically a Javascript Proxy object. The thing has a "get trap," which means when we do something like apple.name, a special function gets handed "name" as the argument - and if "name" isn't a property of the thing, the Proxy looks through the behaviors listed for a matching function to try.
 
-// TAB dependencies
+// - Finally, tab.makeThing returns this new Proxy object, which represents the "thing" with the combined attributes and behaviors. This proxy object can now be used, and any calls to its properties that match attributes will be returned as expected, and calls to its methods will be delegated to the right behavior.
+
+// If we didn't use madeThing, but hand-wrote our thing with a bunch of smaller calls, it might look like this:
+
+// const foodAttributes = tab.gatherAttributes("food");
+// const baseThingAttributes = tab.gatherAttributes('thing');
+// const mergedAttributes = tab.mergeAttributes(baseThingAttributes, foodAttributes);
+// const customAttributes = { name: "apple" }; // This is your addonInput
+// const thingAttributes = tab.mergeAttributes(mergedAttributes, customAttributes);
+// const thing = new Proxy(thingAttributes, thinghandler);
+
 const fs = require('fs');
+const path = require('path');
 
-// TAB Model Loaders
-function loadModel(modelName) {
-  return JSON.parse(fs.readFileSync('./models/' + modelName + '.json'));
+const tab = {
+  modelDirectory: 'models',
+  behaviorDirectory: 'behaviors',
+};
+
+tab.loadModel = function loadModel(modelName) {
+  return JSON.parse(fs.readFileSync(path.join(path.join(__dirname, tab.modelDirectory), modelName + '.json')));
 }
 
-function loadModelIfString(model) {
-  if (typeof model !== 'object' && typeof model !== 'string') {
-    return new Error('Model must be an object or string, got ' + typeof model + ': ' + JSON.stringify(model, null, 2));
+tab.loadBehavior = function loadBehavior(behaviorName) {
+  return require(path.join(path.join(__dirname, tab.behaviorDirectory), behaviorName));
+}
+
+tab.gatherAttributes = function gatherAttributes(modelName) {
+  const model = tab.loadModel(modelName);
+  if (!model) {
+    return {};
   }
-  else if (typeof model === 'string') {
-    return loadModel(model);
+  if (model.base) {
+    const baseAttributes = Array.isArray(model.base)
+      ? model.base.reduce(
+        (accumulator, base) => tab.MergeAttributes(accumulator, tab.gatherAttributes(baseAttributes)),
+        {}
+      )
+      : tab.gatherAttributes(model.base);
+    return tab.MergeAttributes(baseAttributes, model);
   }
   return model;
 }
 
-// TAB Model Base Handlers
-function addBaseToCollection(base, collection, prefix) {
-  return prefix ? collection.unshift(base) : collection.push(base);
-}
-
-function loadBaseIntoCollection(base, collection, prefix) {
-  const modelName = base;
-  const modelJSON = loadModel(modelName);
-  if (modelJSON.hasOwnProperty('base')) {
-    collectBases(model, collection, true);
-  }
-  addBaseToCollection(modelName, collection, prefix);
-}
-
-function collectBases(thing, collection = [], prefix = false) {
-  if (thing.hasOwnProperty('base')) {
-    if (typeof thing.base === 'string') {
-      loadBaseIntoCollection(thing.base, collection, prefix);
-      delete thing.base;
-    }
-    else if (Array.isArray(thing.base)) {
-      for (let i = thing.base.length - 1; i >= 0; i--) {
-        const modelName = thing.base[i];
-        const model = loadModel(modelName);
-        if (model.hasOwnProperty('base')) {
-          collectBases(model, collection, true);
-        }
-        addBaseToCollection(modelName, collection, prefix);
-        thing.base.splice(i, 1);
-      }
-      if (thing.base.length === 0) {
-        delete thing.base;
-      }
-    }
-  }
-  return collection;
-}
-
-// TAB Model Handlers
-function mergeModels(baseModel, additionalModel) {
-  for (const attribute in additionalModel) {
-    if (baseModel.additiveAttributes && baseModel.additiveAttributes.includes(attribute)) {
-      if (!baseModel[attribute]) {
-        baseModel[attribute] = [];
-      }
-      for (const additiveAttribute of additionalModel[attribute]) {
-        baseModel[attribute].push(additiveAttribute);
-        baseModel[attribute] = [...new Set(baseModel[attribute])];
-      }
-    }
-    else if (attribute === 'grammar') {
-      if (!baseModel[attribute]) {
-        baseModel[attribute] = {};
-      }
-      for (const grammarRule in additionalModel[attribute]) {
-        if (grammarRule === 'noun' || grammarRule === 'nouns') {
-          if (!baseModel[attribute][grammarRule]) {
-            baseModel[attribute][grammarRule] = [];
-          }
-          baseModel[attribute][grammarRule] = [...new Set([...baseModel[attribute][grammarRule], ...grammarRule])];
-        }
-        else if (grammarRule === 'adjectives') {
-          if (!baseModel[attribute][grammarRule]) {
-            baseModel[attribute][grammarRule] = [];
-          }
-          baseModel[attribute][grammarRule] = [...new Set([...baseModel[attribute][grammarRule], ...grammarRule])];
-        }
-        else {
-          baseModel[attribute][grammarRule] = additionalModel[attribute][grammarRule];
-        }
-      }
-    }
-    else {
-      baseModel[attribute] = additionalModel[attribute];
-    }
-  }
-  return baseModel;
-}
-
-// TAB Thing Maker
-/* Makes a thing out of model, additionally applying the attributes of addonModel
- * to the thing.  
-*/
-function makeThing(model, addonModel) {
-  const thingModel = loadModel('thing');
-  const modelData = {};
-  const baseCollection = [];
-  if (typeof model === 'undefined') {
-    Object.assign(modelData, thingModel);
-  }
-  else if (typeof model === 'object' || typeof model === 'string') {
-    const result = loadModelIfString(model);
-    if (result instanceof Error) {
-      console.error(result.message)
+tab.mergeAttributes = function mergeAttributes(baseAttributes, addonAttributes) {
+  const result = { ...baseAttributes };
+  Object.keys(addonAttributes).forEach(attribute => {
+    if (baseAttributes.additiveAttributes &&
+      baseAttributes.additiveAttributes.includes(attribute)) {
+      result[attribute] = [...new Set([...result[attribute] || [], ...addonAttributes[attribute]])];
     } else {
-      Object.assign(modelData, result);
-    }
-    if (!modelData.hasOwnProperty('base')) {
-      modelData.base = 'thing';
-    }
-  }
-  else {
-    return new Error("Model must be an object, a string, or to use the default thing model, undefined.");
-  }
-  collectBases(modelData, baseCollection);
-  if (addonModel) {
-    collectBases(addonModel, baseCollection);
-  }
-  const cleanBaseCollection = Array.from(new Set(baseCollection));
-  cleanBaseCollection.forEach(modelName => {
-    const baseModelData = loadModel(modelName);
-    if (typeof baseModelData === 'object') {
-      mergeModels(baseModelData, modelData);
-    }
-    else { console.log('failed to load base model' + modelName) }
-    Object.assign(modelData, baseModelData);
-  });
-
-  const madeThing = new Proxy(modelData, {
-    get: function(target, prop) {
-      if (target[prop]) {
-        return target[prop];
-      } else {
-        if (!target.hasOwnProperty('behaviors')) {
-          target.behaviors = [];
-        }
-        for (const behavior of target.behaviors) {
-          const behaviorModule = require('./behaviors/' + behavior);
-          if (typeof behaviorModule[prop] === 'function') {
-            return behaviorModule[prop].bind(target);
-          }
-        }
-      }
+      result[attribute] = addonAttributes[attribute];
     }
   });
-  return madeThing;
+  return result;
 }
 
-module.exports = { makeThing };
+tab.thingHandler = {
+  get(target, prop, receiver) {
+    if (Reflect.has(target, prop)) {
+      return Reflect.get(target, prop, receiver);
+    }
+    for (const behaviorName of target.behaviors || []) {
+      const behavior = tab.loadBehavior(behaviorName);
+      if (behavior && Reflect.has(behavior, prop)) {
+        return Reflect.get(behavior, prop, receiver);
+      }
+    }
+    return undefined;
+  }
+};
+
+tab.makeThing = function makeThing(baseInput, addonInput) {
+  const model = typeof baseInput === 'string' ? tab.gatherAttributes(baseInput) : baseInput;
+  const baseThing = tab.gatherAttributes('thing');
+  const thing = tab.mergeAttributes(baseThing, model);
+  return new Proxy(thing, tab.thingHandler);
+}
+
+module.exports = tab;
