@@ -10,32 +10,26 @@ const fs = require('fs');
 const path = require('path');
 
 const tab = {
-  modelDirectories: ['tab', 'test'], // List model subdirectories
-  behaviorDirectories: ['tab', 'test'], // List behavior subdirectories
+  catalogDirectory: 'catalog',
+  activeCatalogSections: ['tab', 'test'],
 };
 
-tab.loadModel = function loadModel(modelName) {
-  for (const modelDir of tab.modelDirectories) {
-    const modelPath = path.join(__dirname, 'models', modelDir, `${modelName}.json`);
-    if (fs.existsSync(modelPath)) {
-      const model = JSON.parse(fs.readFileSync(modelPath, 'utf8'));
-      return model;
+tab.loadResource = function loadResource(resourceType, resourceName) {
+  for (const dir of tab.activeCatalogSections) {
+    const resourcePath = path.join(__dirname, tab.catalogDirectory, dir, `${resourceName}${resourceType}`);
+    if (fs.existsSync(resourcePath)) {
+      if (resourceType === 'Model.json') {
+        return JSON.parse(fs.readFileSync(resourcePath, 'utf8'));
+      } else {
+        return require(resourcePath);
+      }
     }
   }
-  throw new Error(`Model ${modelName} not found in any model directories.`);
-}
-tab.loadBehavior = function loadBehavior(behaviorName) {
-  for (const behaviorDir of tab.behaviorDirectories) {
-    const behaviorPath = path.join(__dirname, 'behaviors', behaviorDir, behaviorName);
-    if (fs.existsSync(behaviorPath + '.js')) {
-      return require(behaviorPath);
-    }
-  }
-  throw new Error(`Behavior ${behaviorName} not found in any behavior directories.`);
+  throw new Error(`${resourceName}${resourceType} not found in any catalog sections.`);
 }
 
 tab.gatherAttributes = function gatherAttributes(modelInput) {
-  const model = typeof modelInput === 'string' ? tab.loadModel(modelInput) : modelInput;
+  const model = typeof modelInput === 'string' ? tab.loadResource("Model.json", modelInput) : modelInput;
   if (!model) {
     throw new Error('No model found');
   }
@@ -51,14 +45,34 @@ tab.gatherAttributes = function gatherAttributes(modelInput) {
   }
   return model;
 }
+tab.mergeGrammar = function mergeGrammar(result, addonGrammar) {
+  for (const grammarRule in addonGrammar) {
+    if (grammarRule === 'noun' || grammarRule === 'nouns' || grammarRule === 'adjectives') {
+      if (!result[grammarRule]) {
+        result[grammarRule] = [];
+      }
+      result[grammarRule] = [...new Set([...result[grammarRule], ...addonGrammar[grammarRule]])];
+    }
+    else {
+      result[grammarRule] = addonGrammar[grammarRule];
+    }
+  }
+  return result;
+}
 
 tab.mergeAttributes = function mergeAttributes(baseAttributes, addonAttributes) {
   const result = { ...baseAttributes };
   Object.keys(addonAttributes).forEach(attribute => {
-    if (baseAttributes.additiveAttributes &&
-      baseAttributes.additiveAttributes.includes(attribute)) {
+    if (baseAttributes.additiveAttributes && baseAttributes.additiveAttributes.includes(attribute)) {
       result[attribute] = [...new Set([...result[attribute] || [], ...addonAttributes[attribute]])];
-    } else {
+    }
+    else if (attribute === 'grammar') {
+      if (!result[attribute]) {
+        result[attribute] = {};
+      }
+      result[attribute] = tab.mergeGrammar(result[attribute], addonAttributes[attribute]);
+    }
+    else {
       result[attribute] = addonAttributes[attribute];
     }
   });
@@ -71,7 +85,7 @@ tab.thingHandler = {
       return Reflect.get(target, prop, receiver);
     }
     for (const behaviorName of target.behaviors || []) {
-      const behavior = tab.loadBehavior(behaviorName);
+      const behavior = tab.loadResource("Behaviors.js", behaviorName);
       if (behavior && Reflect.has(behavior, prop)) {
         return Reflect.get(behavior, prop, receiver);
       }
@@ -81,22 +95,17 @@ tab.thingHandler = {
 };
 
 tab.makeThing = function makeThing(baseInput, addonInput) {
-  let baseModel;
-  let addonModel;
-  if (baseInput) {
-    baseModel = tab.gatherAttributes(baseInput);
-  }
-  if (addonInput) {
-    addonModel = tab.gatherAttributes(addonInput);
-  }
-  if (!baseModel && !addonModel) {
-    baseModel = tab.gatherAttributes('thing');
-  } else if (!addonModel) {
-    addonModel = {};
-  }
-  const baseThing = tab.gatherAttributes('thing');
-  const mergedModel = tab.mergeAttributes(tab.mergeAttributes(baseThing, baseModel), addonModel);
+  const baseModel = baseInput ? tab.gatherAttributes(baseInput) : tab.gatherAttributes('thing');
+  const addonModel = addonInput ? tab.gatherAttributes(addonInput) : {};
+  const mergedModel = tab.mergeAttributes(tab.mergeAttributes(tab.gatherAttributes('thing'), baseModel), addonModel);
   return new Proxy(mergedModel, tab.thingHandler);
+}
+
+tab.test = function test(suite) {
+  let testSuite = suite || [];
+  testSuite.forEach(item => {
+    item({ ...tab });
+  });
 }
 
 module.exports = tab;
