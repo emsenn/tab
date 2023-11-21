@@ -79,10 +79,18 @@ tab.thingHandler = {
 };
 
 tab.makeThing = function makeThing(baseInput, addonInput) {
-  const model = typeof baseInput === 'string' ? tab.gatherAttributes(baseInput) : baseInput;
+  let baseModel = typeof baseInput === 'string' ? tab.gatherAttributes(baseInput) : baseInput;
+  let addonModel = typeof addonInput === 'string' ? tab.gatherAttributes(addonInput) : addonInput;
+  
+  if (!baseModel && !addonModel) {
+    baseModel = tab.gatherAttributes('thing');
+  } else if (!addonModel) {
+    addonModel = {};
+  }
+  
   const baseThing = tab.gatherAttributes('thing');
-  const thing = tab.mergeAttributes(baseThing, model);
-  return new Proxy(thing, tab.thingHandler);
+  const mergedModel = tab.mergeAttributes(tab.mergeAttributes(baseThing, baseModel), addonModel);
+  return new Proxy(mergedModel, tab.thingHandler);
 }
 
 module.exports = tab;
