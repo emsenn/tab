@@ -6,7 +6,15 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["multi-user dungeon", "MUD", "MUSH", "MOO", "MUCK", "ECS", "entity-component system"],
+  "keywords": [
+    "multi-user dungeon",
+    "MUD",
+    "MUSH",
+    "MOO",
+    "MUCK",
+    "ECS",
+    "entity-component system"
+  ],
   "author": "emsenn",
   "license": "MIT",
   "dependencies": {

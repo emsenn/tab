@@ -18,8 +18,7 @@ console.log(apple.fullName());
 ```
 
 ### File Organization
-  - `./lib` - holds most of the "engine"
-    - `./lib/services/` - holds internal logic, mostly
+  - `./tab.js` - holds the whole engine. convenient!
   - `./models/` - holds the models that TAB makes into things *(also where saved data goes, for now)*
   - `./behaviors/` - holds the methods that things can use once they're made
 

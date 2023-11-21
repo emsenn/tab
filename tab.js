@@ -1,98 +1,89 @@
-// Things with Attribute and Behaviors (TAB)
-// *Things* are *made* from *models* that list *attributes* and *behaviors*.
-// *Attributes* become *properties* of the *model*.
-// *Behaviors*  *methods* of the *model*.
+/**
+ * Things with Attribute and Behaviors (TAB)
+ * *Things* are *made* from *models* that list *attributes* and *behaviors*.
+ * *Attributes* become *properties* of the *model*.
+ * *Behaviors*  *methods* of the *model*.
+ * 
+ * This file contains the entire TAB engine - just copy/paste it into your own project to get started! (After reading some of our documentation, probably...)
+ */
 
-// This is the main TAB module, containing all the functions someone using the engine might want to access.
 
-// TAB dependencies
 const fs = require('fs');
 
-// TAB Model Loaders
-function loadModel(modelName) {
+/** 
+ * @namespace
+*/
+const tab = {};
+
+/** 
+* Load a model from a JSON file in ./models/
+* @param {string} modelName - The name of the model to load.
+* @returns {Object} - The model object.
+*/
+tab.loadModel = function(modelName) {
   return JSON.parse(fs.readFileSync('./models/' + modelName + '.json'));
 }
 
-function loadModelIfString(model) {
-  if (typeof model !== 'object' && typeof model !== 'string') {
-    return new Error('Model must be an object or string, got ' + typeof model + ': ' + JSON.stringify(model, null, 2));
-  }
-  else if (typeof model === 'string') {
-    return loadModel(model);
-  }
-  return model;
-}
-
-// TAB Model Base Handlers
-function addBaseToCollection(base, collection, prefix) {
-  return prefix ? collection.unshift(base) : collection.push(base);
-}
-
-function loadBaseIntoCollection(base, collection, prefix) {
-  const modelName = base;
+/**
+ * Load a model to be used in a collection of another's model's bases - part of the thing-making process.
+ * @param {string} modelName - The name of the model that'll be added to the collection.
+ * @param {array} collection - The collection of bases, provided & used by makeThing.
+ * @param {boolean} prefix - Whether to add this model to the start or end of the collection.
+  * @returns {array} - The collection of bases, after loading modelName.
+*/
+tab.loadBase = function(modelName, collection, prefix) {
   const modelJSON = loadModel(modelName);
-  if (modelJSON.hasOwnProperty('base')) {
-    collectBases(model, collection, true);
+  if (modelJSON && modelJSON.base) {
+    tab.collectBases(modelJSON.base, collection, true);
   }
-  addBaseToCollection(modelName, collection, prefix);
-}
-
-function collectBases(thing, collection = [], prefix = false) {
-  if (thing.hasOwnProperty('base')) {
-    if (typeof thing.base === 'string') {
-      loadBaseIntoCollection(thing.base, collection, prefix);
-      delete thing.base;
-    }
-    else if (Array.isArray(thing.base)) {
-      for (let i = thing.base.length - 1; i >= 0; i--) {
-        const modelName = thing.base[i];
-        const model = loadModel(modelName);
-        if (model.hasOwnProperty('base')) {
-          collectBases(model, collection, true);
-        }
-        addBaseToCollection(modelName, collection, prefix);
-        thing.base.splice(i, 1);
-      }
-      if (thing.base.length === 0) {
-        delete thing.base;
-      }
-    }
-  }
+  prefix ? collection.unshift(base) : collection.push(base);
   return collection;
 }
 
-// TAB Model Handlers
-function mergeModels(baseModel, additionalModel) {
+/** 
+ * Collect bases from a model's base attribute - and the bases from those bases, etc.
+ * @param {object} model - The model providing the bases.
+  * @param {array} collection - The collection of bases, passed around as this function loops.
+  * @param {boolean} prefix - Whether to add this model to the start or end of the collection.
+  * @returns {array} - The collection of bases, after loading each one and applying its bases.
+*/
+tab.collectBases = function(model, collection = [], prefix = false) {
+  if (!model || !model.base) {
+    return collection;
+  }
+  const bases = Array.isArray(model.base) ? model.base : [model.base];
+  for (let baseModel of bases) {
+    tab.loadBase(baseModel, collection, prefix);
+  }
+  delete model.base;
+  return collection;
+}
+
+/** 
+ * Generate a new model from a base model and another one..
+  * @param {object} baseModel - The base model object to be used.
+  * @param {object} additionalModel - The model whose attributes will be applied.
+  * @returns {object} - The new model.
+*/
+tab.mergeModels = function(baseModel, additionalModel) {
   for (const attribute in additionalModel) {
     if (baseModel.additiveAttributes && baseModel.additiveAttributes.includes(attribute)) {
-      if (!baseModel[attribute]) {
-        baseModel[attribute] = [];
-      }
-      for (const additiveAttribute of additionalModel[attribute]) {
-        baseModel[attribute].push(additiveAttribute);
-        baseModel[attribute] = [...new Set(baseModel[attribute])];
-      }
+      baseModel[attribute] = Array.from(new Set([
+        ...(baseModel[attribute] || []),
+        ...additionalModel[attribute]
+      ]));
     }
     else if (attribute === 'grammar') {
-      if (!baseModel[attribute]) {
-        baseModel[attribute] = {};
-      }
       for (const grammarRule in additionalModel[attribute]) {
-        if (grammarRule === 'noun' || grammarRule === 'nouns') {
-          if (!baseModel[attribute][grammarRule]) {
-            baseModel[attribute][grammarRule] = [];
-          }
-          baseModel[attribute][grammarRule] = [...new Set([...baseModel[attribute][grammarRule], ...grammarRule])];
-        }
-        else if (grammarRule === 'adjectives') {
-          if (!baseModel[attribute][grammarRule]) {
-            baseModel[attribute][grammarRule] = [];
-          }
-          baseModel[attribute][grammarRule] = [...new Set([...baseModel[attribute][grammarRule], ...grammarRule])];
-        }
-        else {
-          baseModel[attribute][grammarRule] = additionalModel[attribute][grammarRule];
-        }
+        const isNoun = grammarRule === 'noun' || grammarRule === 'nouns';
+        const attributeKey = isNoun ? grammarRule : 'adjectives';
+        baseModel[attribute] = {
+          ...baseModel[attribute],
+          [attributeKey]: Array.from(new Set([
+            ...(baseModel[attribute]?.[attributeKey] || []),
+            ...additionalModel[attribute][grammarRule]
+          ]))
+        };
       }
     }
     else {
@@ -102,42 +93,28 @@ function mergeModels(baseModel, additionalModel) {
   return baseModel;
 }
 
-// TAB Thing Maker
-/* Makes a thing out of model, additionally applying the attributes of addonModel
- * to the thing.  
+/**
+ * Makes a thing from (optionally) a model or two.
+ * @param {object} model - The model to use. Otherwise, a basic thing will be made.
+ * @param {object} additionalModel - The model to add to the first model.
+ * @returns {object} - The thing, which can now access its behaviors.
 */
-function makeThing(model, addonModel) {
-  const thingModel = loadModel('thing');
-  const modelData = {};
+tab.makeThing = function(model, addonModel) {
+  const thingModel = tab.loadModel('thing');
+  const modelData = { ...thingModel, ...model };
   const baseCollection = [];
-  if (typeof model === 'undefined') {
-    Object.assign(modelData, thingModel);
-  }
-  else if (typeof model === 'object' || typeof model === 'string') {
-    const result = loadModelIfString(model);
-    if (result instanceof Error) {
-      console.error(result.message)
-    } else {
-      Object.assign(modelData, result);
-    }
-    if (!modelData.hasOwnProperty('base')) {
-      modelData.base = 'thing';
-    }
-  }
-  else {
-    return new Error("Model must be an object, a string, or to use the default thing model, undefined.");
-  }
-  collectBases(modelData, baseCollection);
+  tab.collectBases(modelData, baseCollection);
   if (addonModel) {
-    collectBases(addonModel, baseCollection);
+    tab.collectBases(addonModel, baseCollection);
   }
   const cleanBaseCollection = Array.from(new Set(baseCollection));
   cleanBaseCollection.forEach(modelName => {
-    const baseModelData = loadModel(modelName);
+    const baseModelData = tab.loadModel(modelName);
     if (typeof baseModelData === 'object') {
-      mergeModels(baseModelData, modelData);
+      tab.mergeModels(baseModelData, modelData);
+    } else {
+      console.log('failed to load base model' + modelName);
     }
-    else { console.log('failed to load base model' + modelName) }
     Object.assign(modelData, baseModelData);
   });
 
@@ -146,9 +123,7 @@ function makeThing(model, addonModel) {
       if (target[prop]) {
         return target[prop];
       } else {
-        if (!target.hasOwnProperty('behaviors')) {
-          target.behaviors = [];
-        }
+        target.behaviors = target.behaviors || [];
         for (const behavior of target.behaviors) {
           const behaviorModule = require('./behaviors/' + behavior);
           if (typeof behaviorModule[prop] === 'function') {
@@ -156,9 +131,10 @@ function makeThing(model, addonModel) {
           }
         }
       }
-    }
+    },
   });
+
   return madeThing;
 }
 
-module.exports = { makeThing };
+module.exports = tab;
