@@ -1,5 +1,6 @@
 const tab = require('./tab');
 
-const apple = tab.makeThing();
-apple.name = 'apple';
-console.log(apple.fullName());
+const apple = tab.makeThing({ name: 'apple', behaviors: ["food"] });
+console.log(apple.describe());
+if (apple.rot) apple.rot();
+console.log(apple.describe());
