@@ -1,0 +1,4 @@
+{
+  "name": "MUD Server",
+  "behaviors": ["mudServer"]
+}

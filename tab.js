@@ -18,7 +18,8 @@ tab.loadModel = function loadModel(modelName) {
   for (const modelDir of tab.modelDirectories) {
     const modelPath = path.join(__dirname, 'models', modelDir, `${modelName}.json`);
     if (fs.existsSync(modelPath)) {
-      return JSON.parse(fs.readFileSync(modelPath, 'utf8'));
+      const model = JSON.parse(fs.readFileSync(modelPath, 'utf8'));
+      return model;
     }
   }
   throw new Error(`Model ${modelName} not found in any model directories.`);
@@ -33,19 +34,20 @@ tab.loadBehavior = function loadBehavior(behaviorName) {
   throw new Error(`Behavior ${behaviorName} not found in any behavior directories.`);
 }
 
-tab.gatherAttributes = function gatherAttributes(modelName) {
-  const model = tab.loadModel(modelName);
+tab.gatherAttributes = function gatherAttributes(modelInput) {
+  const model = typeof modelInput === 'string' ? tab.loadModel(modelInput) : modelInput;
   if (!model) {
-    return {};
+    throw new Error('No model found');
   }
   if (model.base) {
     const baseAttributes = Array.isArray(model.base)
       ? model.base.reduce(
-        (accumulator, base) => tab.MergeAttributes(accumulator, tab.gatherAttributes(baseAttributes)),
+        (accumulator, base) => tab.mergeAttributes(accumulator, tab.gatherAttributes(base)),
         {}
       )
       : tab.gatherAttributes(model.base);
-    return tab.MergeAttributes(baseAttributes, model);
+    delete model.base;
+    return tab.mergeAttributes(baseAttributes, model);
   }
   return model;
 }
@@ -79,15 +81,19 @@ tab.thingHandler = {
 };
 
 tab.makeThing = function makeThing(baseInput, addonInput) {
-  let baseModel = typeof baseInput === 'string' ? tab.gatherAttributes(baseInput) : baseInput;
-  let addonModel = typeof addonInput === 'string' ? tab.gatherAttributes(addonInput) : addonInput;
-  
+  let baseModel;
+  let addonModel;
+  if (baseInput) {
+    baseModel = tab.gatherAttributes(baseInput);
+  }
+  if (addonInput) {
+    addonModel = tab.gatherAttributes(addonInput);
+  }
   if (!baseModel && !addonModel) {
     baseModel = tab.gatherAttributes('thing');
   } else if (!addonModel) {
     addonModel = {};
   }
-  
   const baseThing = tab.gatherAttributes('thing');
   const mergedModel = tab.mergeAttributes(tab.mergeAttributes(baseThing, baseModel), addonModel);
   return new Proxy(mergedModel, tab.thingHandler);
