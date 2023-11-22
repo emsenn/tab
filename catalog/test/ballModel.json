@@ -1,0 +1,4 @@
+{
+  "base": "object",
+  "behaviors": ["ball"]
+}

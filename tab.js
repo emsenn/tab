@@ -6,61 +6,27 @@
 // - *Attributes* become *properties* of the *model*.
 // - *Behaviors* become *methods* of the *model*.
 
-const tab = {};
+const path = require('path');
+const fs = require('fs');
 
-tab.models = {};
-tab.behaviors = {
-  thing: {},
-  object: {},
-  ball: {},
+const tab = {
+  catalogDirectory: "./catalog",
+  activeCatalogSections: ["tab", "test"]
 };
 
-tab.models.thing = {
-  additiveAttributes: new Set(["additiveAttributes", "behaviors"]),
-  behaviors: new Set(["thing"])
-}
-tab.models.object = {
-  base: "thing",
-  name: "object",
-  behaviors: ["object"],
-  mass: 1
-}
-tab.models.container = {
-  base: "object",
-  name: "container",
-  contents: [],
-}
-
-tab.models.leatherObject = {
-  base: "object",
-  material: "leather"
-}
-
-tab.models.ball = {
-  base: "object",
-  behaviors: ["ball"]
-}
-
-tab.behaviors.thing.fullName = function() {
-  return this.name ? this.name : 'thing';
-}
-
-tab.behaviors.object.weigh = function() {
-  return this.mass
-}
-
-tab.behaviors.object.moveTo = function(destination) {
-  if (destination.hasOwnProperty('contents')) {
-    destination.contents.push(this);
-    this.location = destination;
+tab.loadResource = function loadResource(resourceType, resourceName) {
+  for (const dir of tab.activeCatalogSections) {
+    const resourcePath = path.join(__dirname, tab.catalogDirectory, dir, `${resourceName}${resourceType}`);
+    if (fs.existsSync(resourcePath)) {
+      if (resourceType === 'Model.json') {
+        return JSON.parse(fs.readFileSync(resourcePath, 'utf8'));
+      } else {
+        return require(resourcePath);
+      }
+    }
   }
+  throw new Error(`${resourceName}${resourceType} not found in any catalog sections.`);
 }
-
-tab.behaviors.ball.bounce = function() {
-  console.log("boing!");
-}
-
-
 
 tab.combineAttributes = function combineAttributes(base, extensionProp, key) {
   if (Array.isArray(base[key]) && Array.isArray(extensionProp)) {
@@ -88,12 +54,13 @@ tab.combineAttributes = function combineAttributes(base, extensionProp, key) {
 tab.mergeAttributes = function mergeAttributes(thing, model) {
   if (model.base) {
     const baseName = typeof model.base === 'string' ? model.base : model.base[0];
-    tab.mergeAttributes(thing, tab.models[baseName]);
+    tab.mergeAttributes(thing, tab.loadResource("Model.json", baseName));
   }
   Object.keys(model).forEach(key => {
-    if (thing.additiveAttributes && thing.additiveAttributes.has(key)) {
+    if (thing.additiveAttributes instanceof Set && thing.additiveAttributes.has(key)) {
       thing[key] = tab.combineAttributes(thing, model[key], key);
-    } else {
+    }
+    else {
       const source = model[key];
       if (Array.isArray(source)) {
         thing[key] = [...source];
@@ -107,15 +74,34 @@ tab.mergeAttributes = function mergeAttributes(thing, model) {
   });
 }
 
+tab.thingHandler = {
+  get(target, prop, receiver) {
+    if (Reflect.has(target, prop)) {
+      return Reflect.get(target, prop, receiver);
+    }
+    for (const behaviorName of target.behaviors || []) {
+      const behavior = tab.loadResource("Behaviors.js", behaviorName);
+      if (behavior && Reflect.has(behavior, prop)) {
+        return Reflect.get(behavior, prop, receiver);
+      }
+    }
+    return undefined;
+  }
+};
+
 tab.makeThing = function makeThing(...args) {
-  const thing = Object.assign({}, tab.models.thing);
+  const thing = {
+    additiveAttributes: new Set(["additiveAttributes", "behaviors"]),
+    behaviors: new Set(["thing"])
+  };
+  tab.mergeAttributes(thing, tab.loadResource("Model.json", "thing"));
   args.forEach((arg, index) => {
     if (typeof arg === "string") {
-      const model = tab.models[arg];
+      const model = tab.loadResource('Model.json', arg);
       if (model.base) {
         const bases = Array.isArray(model.base) ? model.base : [model.base];
         bases.forEach(baseName => {
-          tab.mergeAttributes(thing, tab.models[baseName]);
+          tab.mergeAttributes(thing, tab.loadResource("Model.json", baseName));
         });
       }
       tab.mergeAttributes(thing, model);
@@ -124,29 +110,14 @@ tab.makeThing = function makeThing(...args) {
       if (arg.base) {
         const bases = Array.isArray(arg.base) ? arg.base : [arg.base];
         bases.forEach(baseName => {
-          tab.mergeAttributes(thing, tab.models[baseName]);
+          tab.mergeAttributes(thing, tab.loadResource("Model.json", baseName));
         });
       }
       tab.mergeAttributes(thing, arg);
       delete thing.base;
     };
   });
-  return new Proxy(thing, {
-    get(target, prop, receiver) {
-      if (Reflect.has(target, prop)) {
-        return Reflect.get(target, prop, receiver);
-      } else if (target.behaviors instanceof Set) {
-        for (let behavior of target.behaviors) {
-          if (tab.behaviors[behavior] && typeof tab.behaviors[behavior][prop] === 'function') {
-            return function(...args) {
-              return tab.behaviors[behavior][prop].apply(receiver, args);
-            };
-          }
-        }
-      }
-      return undefined;
-    }
-  });
+  return new Proxy(thing, tab.thingHandler);
 }
 
 module.exports = tab
