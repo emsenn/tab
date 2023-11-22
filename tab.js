@@ -6,106 +6,147 @@
 // - *Attributes* become *properties* of the *model*.
 // - *Behaviors* become *methods* of the *model*.
 
-const fs = require('fs');
-const path = require('path');
+const tab = {};
 
-const tab = {
-  catalogDirectory: 'catalog',
-  activeCatalogSections: ['tab', 'test'],
+tab.models = {};
+tab.behaviors = {
+  thing: {},
+  object: {},
+  ball: {},
 };
 
-tab.loadResource = function loadResource(resourceType, resourceName) {
-  for (const dir of tab.activeCatalogSections) {
-    const resourcePath = path.join(__dirname, tab.catalogDirectory, dir, `${resourceName}${resourceType}`);
-    if (fs.existsSync(resourcePath)) {
-      if (resourceType === 'Model.json') {
-        return JSON.parse(fs.readFileSync(resourcePath, 'utf8'));
-      } else {
-        return require(resourcePath);
-      }
-    }
-  }
-  throw new Error(`${resourceName}${resourceType} not found in any catalog sections.`);
+tab.models.thing = {
+  additiveAttributes: new Set(["additiveAttributes", "behaviors"]),
+  behaviors: new Set(["thing"])
+}
+tab.models.object = {
+  base: "thing",
+  name: "object",
+  behaviors: ["object"],
+  mass: 1
+}
+tab.models.container = {
+  base: "object",
+  name: "container",
+  contents: [],
 }
 
-tab.gatherAttributes = function gatherAttributes(modelInput) {
-  const model = typeof modelInput === 'string' ? tab.loadResource("Model.json", modelInput) : modelInput;
-  if (!model) {
-    throw new Error('No model found');
+tab.models.leatherObject = {
+  base: "object",
+  material: "leather"
+}
+
+tab.models.ball = {
+  base: "object",
+  behaviors: ["ball"]
+}
+
+tab.behaviors.thing.fullName = function() {
+  return this.name ? this.name : 'thing';
+}
+
+tab.behaviors.object.weigh = function() {
+  return this.mass
+}
+
+tab.behaviors.object.moveTo = function(destination) {
+  if (destination.hasOwnProperty('contents')) {
+    destination.contents.push(this);
+    this.location = destination;
   }
+}
+
+tab.behaviors.ball.bounce = function() {
+  console.log("boing!");
+}
+
+
+
+tab.combineAttributes = function combineAttributes(base, extensionProp, key) {
+  if (Array.isArray(base[key]) && Array.isArray(extensionProp)) {
+    base[key] = [...new Set(base[key].concat(extensionProp))];
+  } else if (base[key] instanceof Set) {
+    if (extensionProp instanceof Set) {
+      extensionProp.forEach(value => base[key].add(value));
+    } else if (Array.isArray(extensionProp)) {
+      extensionProp.forEach(value => base[key].add(value));
+    } else if (typeof extensionProp === 'string') {
+      base[key].add(extensionProp);
+    }
+  } else if (typeof base[key] === 'object' && typeof extensionProp === 'object') {
+    base[key] = extensionProp;
+  } else if (Array.isArray(base[key])) {
+    base[key] = base[key].concat(extensionProp);
+  } else if (typeof base[key] === 'number' && typeof extensionProp === 'number') {
+    base[key] += extensionProp;
+  } else if (typeof base[key] === 'string' && typeof extensionProp === 'string') {
+    base[key] += extensionProp;
+  }
+  return base[key];
+}
+
+tab.mergeAttributes = function mergeAttributes(thing, model) {
   if (model.base) {
-    const baseAttributes = Array.isArray(model.base)
-      ? model.base.reduce(
-        (accumulator, base) => tab.mergeAttributes(accumulator, tab.gatherAttributes(base)),
-        {}
-      )
-      : tab.gatherAttributes(model.base);
-    delete model.base;
-    return tab.mergeAttributes(baseAttributes, model);
+    const baseName = typeof model.base === 'string' ? model.base : model.base[0];
+    tab.mergeAttributes(thing, tab.models[baseName]);
   }
-  return model;
-}
-tab.mergeGrammar = function mergeGrammar(result, addonGrammar) {
-  for (const grammarRule in addonGrammar) {
-    if (grammarRule === 'noun' || grammarRule === 'nouns' || grammarRule === 'adjectives') {
-      if (!result[grammarRule]) {
-        result[grammarRule] = [];
+  Object.keys(model).forEach(key => {
+    if (thing.additiveAttributes && thing.additiveAttributes.has(key)) {
+      thing[key] = tab.combineAttributes(thing, model[key], key);
+    } else {
+      const source = model[key];
+      if (Array.isArray(source)) {
+        thing[key] = [...source];
+      } else if (source instanceof Set) {
+        thing[key] = new Set(source);
+      } else if (typeof source === 'object') {
+        return Object.assign({}, source);
       }
-      result[grammarRule] = [...new Set([...result[grammarRule], ...addonGrammar[grammarRule]])];
+      else { thing[key] = source };
     }
-    else {
-      result[grammarRule] = addonGrammar[grammarRule];
-    }
-  }
-  return result;
-}
-
-tab.mergeAttributes = function mergeAttributes(baseAttributes, addonAttributes) {
-  const result = { ...baseAttributes };
-  Object.keys(addonAttributes).forEach(attribute => {
-    if (baseAttributes.additiveAttributes && baseAttributes.additiveAttributes.includes(attribute)) {
-      result[attribute] = [...new Set([...result[attribute] || [], ...addonAttributes[attribute]])];
-    }
-    else if (attribute === 'grammar') {
-      if (!result[attribute]) {
-        result[attribute] = {};
-      }
-      result[attribute] = tab.mergeGrammar(result[attribute], addonAttributes[attribute]);
-    }
-    else {
-      result[attribute] = addonAttributes[attribute];
-    }
-  });
-  return result;
-}
-
-tab.thingHandler = {
-  get(target, prop, receiver) {
-    if (Reflect.has(target, prop)) {
-      return Reflect.get(target, prop, receiver);
-    }
-    for (const behaviorName of target.behaviors || []) {
-      const behavior = tab.loadResource("Behaviors.js", behaviorName);
-      if (behavior && Reflect.has(behavior, prop)) {
-        return Reflect.get(behavior, prop, receiver);
-      }
-    }
-    return undefined;
-  }
-};
-
-tab.makeThing = function makeThing(baseInput, addonInput) {
-  const baseModel = baseInput ? tab.gatherAttributes(baseInput) : tab.gatherAttributes('thing');
-  const addonModel = addonInput ? tab.gatherAttributes(addonInput) : {};
-  const mergedModel = tab.mergeAttributes(tab.mergeAttributes(tab.gatherAttributes('thing'), baseModel), addonModel);
-  return new Proxy(mergedModel, tab.thingHandler);
-}
-
-tab.test = function test(suite) {
-  let testSuite = suite || [];
-  testSuite.forEach(item => {
-    item({ ...tab });
   });
 }
 
-module.exports = tab;
+tab.makeThing = function makeThing(...args) {
+  const thing = Object.assign({}, tab.models.thing);
+  args.forEach((arg, index) => {
+    if (typeof arg === "string") {
+      const model = tab.models[arg];
+      if (model.base) {
+        const bases = Array.isArray(model.base) ? model.base : [model.base];
+        bases.forEach(baseName => {
+          tab.mergeAttributes(thing, tab.models[baseName]);
+        });
+      }
+      tab.mergeAttributes(thing, model);
+      delete thing.base;
+    } else if (typeof arg === "object") {
+      if (arg.base) {
+        const bases = Array.isArray(arg.base) ? arg.base : [arg.base];
+        bases.forEach(baseName => {
+          tab.mergeAttributes(thing, tab.models[baseName]);
+        });
+      }
+      tab.mergeAttributes(thing, arg);
+      delete thing.base;
+    };
+  });
+  return new Proxy(thing, {
+    get(target, prop, receiver) {
+      if (Reflect.has(target, prop)) {
+        return Reflect.get(target, prop, receiver);
+      } else if (target.behaviors instanceof Set) {
+        for (let behavior of target.behaviors) {
+          if (tab.behaviors[behavior] && typeof tab.behaviors[behavior][prop] === 'function') {
+            return function(...args) {
+              return tab.behaviors[behavior][prop].apply(receiver, args);
+            };
+          }
+        }
+      }
+      return undefined;
+    }
+  });
+}
+
+module.exports = tab
