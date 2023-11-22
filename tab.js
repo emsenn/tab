@@ -11,7 +11,7 @@ const fs = require('fs');
 
 const tab = {
   catalogDirectory: "./catalog",
-  activeCatalogSections: ["tab", "test"]
+  activeCatalogSections: new Set(["tab", "test"])
 };
 
 tab.loadResource = function loadResource(resourceType, resourceName) {

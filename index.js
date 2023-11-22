@@ -2,7 +2,7 @@ const tab = require('./tab')
 
 let foo = tab.makeThing();
 console.log("This should say thing: ", foo.fullName()); // thing
-tab.activeCatalogSections.push("vr");
+tab.activeCatalogSections.add('vr');
 let pebble = tab.makeThing("object");
 pebble.name = "pebble";
 console.log("This should say pebble: ", pebble.fullName()); // pebble
